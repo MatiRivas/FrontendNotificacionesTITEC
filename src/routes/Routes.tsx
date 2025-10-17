@@ -23,6 +23,7 @@ const Register = Loadable(
 const ResetPass = Loadable(
   lazy(() => import("../views/authentication/ResetPass"))
 );
+const NewPage = Loadable(lazy(() => import("../views/NewPage")));
 
 /* ****End Pages***** */
 
@@ -66,6 +67,12 @@ const Router = [
         path: "home",
         exact: true,
         element: <Home />,
+      },
+      {
+        path: "new-page",
+        exact: true,
+        element: <NewPage />,
+        
       },
       { path: "*", element: <Navigate to="/error/404" /> },
     ],
