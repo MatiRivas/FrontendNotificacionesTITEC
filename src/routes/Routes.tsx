@@ -24,6 +24,10 @@ const ResetPass = Loadable(
   lazy(() => import("../views/authentication/ResetPass"))
 );
 const NewPage = Loadable(lazy(() => import("../views/NewPage")));
+const NotificationsInbox = Loadable(
+  lazy(() => import("../views/notifications/NotificationsInbox"))
+);
+
 
 /* ****End Pages***** */
 
@@ -67,6 +71,11 @@ const Router = [
         path: "home",
         exact: true,
         element: <Home />,
+      },
+      {
+        path: "notifications",
+        exact: true,
+        element: <NotificationsInbox />,
       },
       {
         path: "new-page",
