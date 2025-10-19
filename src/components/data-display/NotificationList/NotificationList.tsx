@@ -1,7 +1,9 @@
 // src/components/data-display/NotificationList/NotificationList.tsx
-import { Alert, Box, CircularProgress, Stack } from '@mui/material';
-import type { Notification } from '../../../types/notifications';
+import { Box, Stack } from '@mui/material';
 import NotificationCard from '../NotificationCard';
+import type { Notification } from '../../../types/notifications';
+import { NotifCardSkeleton } from '../../ui/NotifCardSkeleton';
+import { EmptyState } from '../../ui/EmptyState';
 
 type Props = {
   notifications: Notification[];
@@ -12,28 +14,20 @@ type Props = {
 export default function NotificationList({ notifications, loading, error }: Props) {
   if (loading) {
     return (
-      <Box sx={{ p: 2, display: 'flex', justifyContent: 'center' }}>
-        <CircularProgress />
+      <Box sx={{ p: 2 }}>
+        <Stack spacing={1.5}>
+          <NotifCardSkeleton />
+          <NotifCardSkeleton />
+        </Stack>
       </Box>
     );
   }
-
   if (error) {
-    return (
-      <Box sx={{ p: 2 }}>
-        <Alert severity="error">{error}</Alert>
-      </Box>
-    );
+    return <EmptyState title="Error" description={error} />;
   }
-
   if (!notifications.length) {
-    return (
-      <Box sx={{ p: 2 }}>
-        <Alert severity="info">Sin notificaciones</Alert>
-      </Box>
-    );
+    return <EmptyState />;
   }
-
   return (
     <Stack spacing={1.5} sx={{ p: 2 }}>
       {notifications.map((n) => (
@@ -42,3 +36,4 @@ export default function NotificationList({ notifications, loading, error }: Prop
     </Stack>
   );
 }
+``
