@@ -1,51 +1,63 @@
-// src/hooks/useNotifications.ts
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { notificationService } from '../db/services/notificationService';
 import type { Notification } from '../types/notifications';
 
-export function useNotifications(idUsuario: string | undefined) {
+type Options = {
+  includeHistory?: boolean;
+  onNew?: (n: Notification) => void; // 👈 tipado
+};
+
+export function useNotifications(userId: string | undefined, opts?: Options) {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [transport, setTransport] = useState<'polling' | 'sse'>('polling');
+  const [transport, setTransport] = useState<'polling'>('polling');
 
-  // Carga inicial
-  useEffect(() => {
-    if (!idUsuario) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const list = await notificationService.getUserNotifications(idUsuario);
-        if (!cancelled) setNotifications(list);
-      } catch (e: any) {
-        if (!cancelled) setError(e?.message ?? 'Error');
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [idUsuario]);
-
-  // Suscripción (polling)
-  useEffect(() => {
-    if (!idUsuario) return;
-    const unsubscribe = notificationService.subscribePolling({
-      idUsuario,
-      onDiff: (nuevas) => setNotifications((prev) => [...nuevas, ...prev]),
-    });
-    setTransport('polling');
-    return () => unsubscribe();
-  }, [idUsuario]);
-
-  const refresh = async () => {
-    if (!idUsuario) return;
+  const load = useCallback(async () => {
+    if (!userId) return;
+    setLoading(true);
     try {
-      const list = await notificationService.getUserNotifications(idUsuario);
-      setNotifications(list);
+      const [internals, history] = await Promise.all([
+        notificationService.getUserInternalUnread(userId),
+        opts?.includeHistory ? notificationService.getUserHistory(userId) : Promise.resolve<Notification[]>([]),
+      ]);
+      const merged = [...internals, ...history].sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+      setNotifications(merged);
+      setError(null);
     } catch (e: any) {
       setError(e?.message ?? 'Error');
+    } finally {
+      setLoading(false);
     }
-  };
+  }, [userId, opts?.includeHistory]);
 
-  return { notifications, loading, error, refresh, transport };
+  useEffect(() => {
+    if (!userId) return;
+    const unsubscribe = notificationService.subscribePolling({
+      userId,
+      includeHistory: opts?.includeHistory,
+      onDiff: (nuevas) => {
+        // 👇 dispara pop-up por cada NUEVA
+        nuevas.forEach((n) => opts?.onNew?.(n));
+        // añade a la lista
+        setNotifications((prev) => [...nuevas, ...prev]);
+      },
+    });
+    setTransport('polling');
+    load();
+    return () => unsubscribe();
+  }, [userId, opts?.includeHistory, opts?.onNew, load]);
+
+  const refresh = useCallback(() => load(), [load]);
+
+  const markAsRead = useCallback(async (id: string) => {
+    if (!userId) return false;
+    const ok = await notificationService.markAsRead(id, userId);
+    if (ok) {
+      setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, isRead: true } : n)));
+    }
+    return ok;
+  }, [userId]);
+
+  return { notifications, loading, error, refresh, transport, markAsRead };
 }
