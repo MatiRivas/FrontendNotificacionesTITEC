@@ -121,7 +121,7 @@ export const notificationService = {
           id: 'h1',
           eventType: 'order_created',
           subject: 'Confirmación de compra - #ORD-123',
-          channel: 'email',
+          channel: 'push',
           status: 'sent',
           sentAt: new Date(Date.now() - 60_000 * 5).toISOString(),
         },
