@@ -12,22 +12,22 @@ import {
 const isMock = import.meta.env.VITE_MOCK_NOTIF === '1';
 const POLL_MS = Number(import.meta.env.VITE_POLL_INTERVAL_MS ?? 3000);
 
-// --- Mapper mínimo EventType -> NotificationKind ---
-function mapEventTypeToKind(e: EventType): NotificationKind {
+// Map tipos -> kind UI
+function mapEventTypeToKind(e?: EventType): NotificationKind {
   switch (e) {
-    case 'order_created':        return 'ORDER_CREATED';
-    case 'order_canceled':       return 'ORDER_CANCELED';
-    case 'order_shipped':        return 'ORDER_SHIPPED';
+    case 'order_created': return 'ORDER_CREATED';
+    case 'order_canceled': return 'ORDER_CANCELED';
+    case 'order_shipped': return 'ORDER_SHIPPED';
     case 'order_status_changed': return 'ORDER_STATUS_UPDATED';
-    case 'payment_confirmed':    return 'PAYMENT_CONFIRMED';
-    case 'payment_status':       return 'PAYMENT_STATUS_CHANGED';
-    case 'delivery_tracking':    return 'GENERIC';
-    case 'payment_issue':        return 'PAYMENT_ISSUE';
-    default:                     return 'GENERIC';
+    case 'payment_confirmed': return 'PAYMENT_CONFIRMED';
+    case 'payment_status': return 'PAYMENT_STATUS_CHANGED';
+    case 'payment_issue': return 'PAYMENT_ISSUE';
+    case 'payment_dispute': return 'PAYMENT_DISPUTE';
+    default: return 'GENERIC';
   }
 }
 
-// --- Normalizadores ---
+// Normalizadores
 function normalizeUserNotification(raw: RawUserNotification): Notification {
   const mappedChannel = raw.channel === 'push' ? 'internal' : raw.channel;
   return {
@@ -48,13 +48,14 @@ function normalizeUserNotification(raw: RawUserNotification): Notification {
 }
 
 function normalizeInternal(raw: RawInternalNotification): Notification {
-  const rawEvent = raw.metadata?.['eventType'] as EventType | undefined;
-  const kind: NotificationKind = rawEvent ? mapEventTypeToKind(rawEvent) : 'GENERIC';
+  const id = raw.id ?? raw._id ?? crypto.randomUUID();
+  const kind = mapEventTypeToKind(raw.type);
+  const body = raw.message ?? raw.content;
   return {
-    id: raw._id,
+    id,
     kind,
     title: raw.title,
-    body: raw.content,
+    body,
     channel: 'internal',
     status: raw.status,
     createdAt: raw.createdAt,
@@ -62,8 +63,9 @@ function normalizeInternal(raw: RawInternalNotification): Notification {
     isRead: raw.isRead,
     meta: {
       ...(raw.metadata ?? {}),
+      priority: raw.priority,
       wasPush: false,
-      originalChannel: 'internal',
+      originalChannel: raw.channel,
     },
   };
 }
@@ -73,11 +75,10 @@ function sortDesc(a: Notification, b: Notification) {
 }
 
 /* ===========================
-   MOCK dinámico en memoria
+   MOCK en memoria
    =========================== */
-const mockDynamic: RawUserNotification[] = []; // buffer donde el botón "inyecta" nuevas
+const mockDynamic: RawUserNotification[] = [];
 
-// Generador de notificación aleatoria coherente con tus HDU
 function randomEventType(): EventType {
   const pool: EventType[] = [
     'order_created',
@@ -88,31 +89,32 @@ function randomEventType(): EventType {
     'payment_status',
     'delivery_tracking',
     'payment_issue',
+    'payment_dispute',
   ];
   return pool[Math.floor(Math.random() * pool.length)];
 }
 function randomChannel(): 'push' | 'email' | 'internal' {
-  // preferimos 'push' para que se vea el popup (normalize -> internal)
-  const pool: Array<'push' | 'email' | 'internal'> = ['push', 'email', 'internal'];
-  return pool[Math.floor(Math.random() * pool.length)];
+  const channels = ['push', 'email', 'internal'] as const; // <- tuple literal
+  return channels[Math.floor(Math.random() * channels.length)];
 }
 function subjectFor(e: EventType, order = `#ORD-${Math.floor(Math.random() * 900 + 100)}`) {
   switch (e) {
-    case 'order_created':        return `Confirmación de compra - ${order}`;
-    case 'order_canceled':       return `Compra cancelada - ${order}`;
-    case 'order_shipped':        return `¡Tu pedido fue enviado! - ${order}`;
+    case 'order_created': return `Confirmación de compra - ${order}`;
+    case 'order_canceled': return `Compra cancelada - ${order}`;
+    case 'order_shipped': return `¡Tu pedido fue enviado! - ${order}`;
     case 'order_status_changed': return `Estado de pedido actualizado - ${order}`;
-    case 'payment_confirmed':    return `Pago confirmado - ${order}`;
-    case 'payment_status':       return `Estado de pago actualizado - ${order}`;
-    case 'delivery_tracking':    return `Seguimiento de entrega - ${order}`;
-    case 'payment_issue':        return `Problema con pago - ${order}`;
-    default:                     return `Notificación - ${order}`;
+    case 'payment_confirmed': return `Pago confirmado - ${order}`;
+    case 'payment_status': return `Estado de pago actualizado - ${order}`;
+    case 'delivery_tracking': return `Seguimiento de entrega - ${order}`;
+    case 'payment_issue': return `Problema con pago - ${order}`;
+    case 'payment_dispute': return `Disputa de pago - ${order}`;
+    default: return `Notificación - ${order}`;
   }
 }
 
-/* ============================================
-   API pública del servicio (tu objeto exportado)
-   ============================================ */
+/* ===========================
+   API pública
+   =========================== */
 export const notificationService = {
   async getUserHistory(userId: string): Promise<Notification[]> {
     if (isMock) {
@@ -129,62 +131,86 @@ export const notificationService = {
           id: 'h2',
           eventType: 'order_shipped',
           subject: '¡Tu pedido fue enviado! - #ORD-123',
-          channel: 'push', // mock push → se verá como internal
+          channel: 'push',
           status: 'sent',
           sentAt: new Date(Date.now() - 60_000 * 3).toISOString(),
         },
       ];
-      // 👇 unimos el mock "estático" con el buffer dinámico
       return [...base, ...mockDynamic].map(normalizeUserNotification).sort(sortDesc);
     }
-    const { data } = await api.get<RawUserNotification[]>(
-      `/notifications/user/${encodeURIComponent(userId)}`
-    );
-    return data.map(normalizeUserNotification).sort(sortDesc);
+    // PENDIENTE: este endpoint no está en Endpoints.txt → desactivado
+    // Mantener para futuro; por ahora retornamos []
+    console.warn('[notificationService] getUserHistory: endpoint no documentado; usando []');
+    return [];
   },
 
-  async getUserInternalUnread(userId: string): Promise<Notification[]> {
+  async getUserInternal(userId: string, opts?: { limit?: number; offset?: number; unreadOnly?: boolean }): Promise<Notification[]> {
+    const q = new URLSearchParams();
+    if (opts?.limit != null) q.set('limit', String(opts.limit));
+    if (opts?.offset != null) q.set('offset', String(opts.offset));
+    if (opts?.unreadOnly != null) q.set('unreadOnly', String(!!opts.unreadOnly));
+
     if (isMock) {
-      // Si tuvieras mock interno separado, podrías sumarlo acá.
+      // Mock vacío por ahora; puedes inyectar con createMockNotification (histórico se mezcla)
       return [];
     }
+
     const { data } = await api.get<RawInternalNotification[]>(
-      `/notifications/user/${encodeURIComponent(userId)}/internal`
+      `/notifications/user/${encodeURIComponent(userId)}/internal${q.toString() ? `?${q.toString()}` : ''}`,
     );
     return data.map(normalizeInternal).sort(sortDesc);
   },
 
   async getUserPreferences(userId: string): Promise<UserPreferences> {
-    if (isMock) { /* ... */ }
-    const { data } = await api.get<UserPreferences>(
-      `/notifications/user/${encodeURIComponent(userId)}/preferences`
-    );
-    return data;
+    if (isMock) {
+      return {
+        userId,
+        preferredChannels: ['internal', 'email'],
+        enableNotifications: true,
+        channelSettings: {},
+        notificationTypes: ['order', 'payment', 'shipping'],
+        lastUpdated: new Date().toISOString(),
+      };
+    }
+    // PENDIENTE: no documentado
+    console.warn('[notificationService] getUserPreferences: endpoint no documentado; mock only');
+    return {
+      userId,
+      preferredChannels: ['internal', 'email'],
+      enableNotifications: true,
+      channelSettings: {},
+      notificationTypes: ['order', 'payment', 'shipping'],
+      lastUpdated: new Date().toISOString(),
+    };
   },
 
   async updateUserPreferences(userId: string, body: Partial<UserPreferences>): Promise<UserPreferences> {
-    if (isMock) { /* ... */ }
-    const { data } = await api.put<UserPreferences>(
-      `/notifications/user/${encodeURIComponent(userId)}/preferences`,
-      body
-    );
-    return data;
+    if (isMock) {
+      return {
+        userId,
+        preferredChannels: (body.preferredChannels ?? ['internal', 'email']) as any,
+        enableNotifications: body.enableNotifications ?? true,
+        channelSettings: body.channelSettings ?? {},
+        notificationTypes: (body.notificationTypes ?? ['order', 'payment', 'shipping']) as any,
+        lastUpdated: new Date().toISOString(),
+      };
+    }
+    // PENDIENTE: no documentado
+    console.warn('[notificationService] updateUserPreferences: endpoint no documentado; mock only');
+    return this.getUserPreferences(userId);
   },
 
   async markAsRead(id: string, userId: string, readAt?: string): Promise<boolean> {
     if (isMock) return true;
     const { data } = await api.patch<{ success: boolean }>(
       `/notifications/${encodeURIComponent(id)}/read`,
-      { userId, ...(readAt ? { readAt } : {}) }
+      { userId, ...(readAt ? { readAt } : {}) },
     );
     return !!data?.success;
   },
 
-  // 👉 NUEVO: crear mock dinámico para probar pop-ups sin tocar UI
   async createMockNotification(userId: string, seed?: Partial<RawUserNotification>) {
     if (!isMock) {
-      // Si quisieras, aquí podrías hacer un POST real:
-      // await api.post('/notifications', { ...payload });
       console.warn('[notificationService] createMockNotification ignorado (no es mock).');
       return;
     }
@@ -192,24 +218,17 @@ export const notificationService = {
     const channel = seed?.channel ?? randomChannel();
     const id = seed?.id ?? `mock-${Date.now()}`;
     const subject = seed?.subject ?? subjectFor(eventType);
-
-    const raw: RawUserNotification = {
-      id,
-      eventType,
-      subject,
-      channel,
-      status: 'sent',
-      sentAt: new Date().toISOString(),
-    };
+    const raw: RawUserNotification = { id, eventType, subject, channel, status: 'sent', sentAt: new Date().toISOString() };
     mockDynamic.push(raw);
   },
 
-  // Polling combinado
+  // Polling unificado
   subscribePolling(params: {
     userId: string;
     onDiff: (nuevas: Notification[]) => void;
     includeHistory?: boolean;
     intervalMs?: number;
+    unreadOnly?: boolean;
   }) {
     const interval = params.intervalMs ?? POLL_MS;
     let stopped = false;
@@ -219,7 +238,7 @@ export const notificationService = {
     const tick = async () => {
       try {
         const [internals, history] = await Promise.all([
-          this.getUserInternalUnread(params.userId),
+          this.getUserInternal(params.userId, { unreadOnly: params.unreadOnly, limit: 50, offset: 0 }),
           params.includeHistory ? this.getUserHistory(params.userId) : Promise.resolve<Notification[]>([]),
         ]);
         const list = [...internals, ...history].sort(sortDesc);
@@ -235,7 +254,7 @@ export const notificationService = {
 
     (async () => {
       const [internalsSeed, historySeed] = await Promise.all([
-        this.getUserInternalUnread(params.userId),
+        this.getUserInternal(params.userId, { unreadOnly: params.unreadOnly, limit: 50, offset: 0 }),
         params.includeHistory ? this.getUserHistory(params.userId) : Promise.resolve<Notification[]>([]),
       ]);
       known = new Set([...internalsSeed, ...historySeed].map((n) => n.id));
@@ -244,10 +263,8 @@ export const notificationService = {
 
     return () => {
       stopped = true;
-      if (timer) {
-        window.clearTimeout(timer);
-        timer = null;
-      }
+      if (timer) { window.clearTimeout(timer); timer = null; }
     };
   },
 };
+``

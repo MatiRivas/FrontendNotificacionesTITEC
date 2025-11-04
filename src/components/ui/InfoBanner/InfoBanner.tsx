@@ -1,23 +1,21 @@
-import { Alert } from '@mui/material';
+import { Alert, AlertColor, AlertTitle } from '@mui/material';
 
 type Props = {
-  show: boolean;
-  message?: string;
-  sx?: any;
+  severity?: AlertColor;        // 'success' | 'info' | 'warning' | 'error'
+  title?: string;
+  description?: string;
+  // opcionalmente aceptar children, y si vienen, los renderizas en lugar de description
+  children?: React.ReactNode;
+  // ...otros props opcionales (sx, className, etc.)
 };
 
-/**
- * Banner informativo simple (ej: fallback email HDU6).
- */
-export default function InfoBanner({
-  show,
-  message = 'No pudimos enviar el correo. Revisa la notificación interna.',
-  sx,
-}: Props) {
-  if (!show) return null;
+export function InfoBanner({ severity = 'info', title, description, children }: Props) {
   return (
-    <Alert severity="warning" sx={sx}>
-      {message}
+    <Alert severity={severity} variant="outlined" sx={{ my: 1 }}>
+      {title ? <AlertTitle>{title}</AlertTitle> : null}
+      {children ?? description ?? null}
     </Alert>
   );
 }
+
+export default InfoBanner;

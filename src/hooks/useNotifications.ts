@@ -1,10 +1,11 @@
-import { useEffect, useState, useCallback } from 'react';
+// src/hooks/useNotifications.ts
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { notificationService } from '../db/services/notificationService';
 import type { Notification } from '../types/notifications';
 
 type Options = {
   includeHistory?: boolean;
-  onNew?: (n: Notification) => void; // 👈 tipado
+  onNew?: (n: Notification) => void;
 };
 
 export function useNotifications(userId: string | undefined, opts?: Options) {
@@ -12,13 +13,16 @@ export function useNotifications(userId: string | undefined, opts?: Options) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [transport, setTransport] = useState<'polling'>('polling');
+  const [readFilter, setReadFilter] = useState<'all' | 'read' | 'unread'>('all');
+
+  const unreadOnly = readFilter === 'unread';
 
   const load = useCallback(async () => {
     if (!userId) return;
     setLoading(true);
     try {
       const [internals, history] = await Promise.all([
-        notificationService.getUserInternalUnread(userId),
+        notificationService.getUserInternal(userId, { unreadOnly, limit: 50, offset: 0 }),
         opts?.includeHistory ? notificationService.getUserHistory(userId) : Promise.resolve<Notification[]>([]),
       ]);
       const merged = [...internals, ...history].sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
@@ -29,24 +33,23 @@ export function useNotifications(userId: string | undefined, opts?: Options) {
     } finally {
       setLoading(false);
     }
-  }, [userId, opts?.includeHistory]);
+  }, [userId, opts?.includeHistory, unreadOnly]);
 
   useEffect(() => {
     if (!userId) return;
     const unsubscribe = notificationService.subscribePolling({
       userId,
       includeHistory: opts?.includeHistory,
+      unreadOnly,
       onDiff: (nuevas) => {
-        // 👇 dispara pop-up por cada NUEVA
         nuevas.forEach((n) => opts?.onNew?.(n));
-        // añade a la lista
         setNotifications((prev) => [...nuevas, ...prev]);
       },
     });
     setTransport('polling');
     load();
     return () => unsubscribe();
-  }, [userId, opts?.includeHistory, opts?.onNew, load]);
+  }, [userId, opts?.includeHistory, opts?.onNew, load, unreadOnly]);
 
   const refresh = useCallback(() => load(), [load]);
 
@@ -59,5 +62,24 @@ export function useNotifications(userId: string | undefined, opts?: Options) {
     return ok;
   }, [userId]);
 
-  return { notifications, loading, error, refresh, transport, markAsRead };
+  const filtered = useMemo(() => {
+    switch (readFilter) {
+      case 'read': return notifications.filter((n) => n.isRead);
+      case 'unread': return notifications.filter((n) => !n.isRead);
+      default: return notifications;
+    }
+  }, [notifications, readFilter]);
+
+  return {
+    notifications: filtered,
+    loading,
+    error,
+    refresh,
+    transport,
+    markAsRead,
+    readFilter,
+    setReadFilter,
+    // acceso raw si lo necesitas
+    all: notifications,
+  };
 }
