@@ -2,46 +2,66 @@
 import { Container, Typography, Tabs, Tab, Box, Stack, Chip } from '@mui/material';
 import NotificationList from '../../components/data-display/NotificationList';
 import { useNotifications } from '../../hooks/useNotifications';
-// Hook fake de auth (reemplazar cuando tengas el real)
 import { useAuth } from '../../hooks/useAuth.fake';
 import type { ReadFilter } from '../../db/services/notificationService';
+import { useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 export default function NotificationsInbox() {
   const { user } = useAuth();
+  const navigate = useNavigate();
+
   const {
-    notifications,         // lista ya filtrada según readFilter
+    notifications,
     loading,
     error,
     transport,
     readFilter,
     setReadFilter,
-    all,                   // lista sin filtrar (para contar)
+    all,
+    markAsRead,
   } = useNotifications(user.id, { includeHistory: true });
 
-  // Contadores para chips en tabs
   const total = all.length;
   const readCount = all.filter(n => n.isRead).length;
   const unreadCount = total - readCount;
 
-  // Mensaje vacío contextual según filtro activo
   const emptyHint =
     readFilter === 'all'
       ? 'Sin notificaciones'
       : readFilter === 'read'
       ? 'Aún no tienes notificaciones leídas'
-      : 'No tienes notificaciones nuevas';
+      : 'No tienes no leídas';
 
-  // Handler de cambio de pestaña
   const handleChange = (_: React.SyntheticEvent, value: ReadFilter) => {
     setReadFilter(value);
   };
 
-  // Labels con chips de conteo
   const labelWithCount = (label: string, count: number) => (
     <Stack direction="row" spacing={1} alignItems="center">
       <span>{label}</span>
       <Chip size="small" label={count} />
     </Stack>
+  );
+
+  // Navegación segura: externa vs. interna
+  const goTo = useCallback(
+    (target?: string) => {
+      if (!target) return;
+      const isAbsolute = /^https?:\/\//i.test(target);
+      if (isAbsolute) window.location.href = target;
+      else navigate(target);
+    },
+    [navigate]
+  );
+
+  // Al abrir: marcar leída y navegar si corresponde
+  const handleOpen = useCallback(
+    async (id: string, target?: string) => {
+      await markAsRead(id);
+      goTo(target);
+    },
+    [markAsRead, goTo]
   );
 
   return (
@@ -50,7 +70,7 @@ export default function NotificationsInbox() {
         Notificaciones
       </Typography>
 
-      {/* Transporte activo (informativo) */}
+      {/* Informativo: transporte actual */}
       <Typography
         variant="caption"
         color="text.secondary"
@@ -59,7 +79,7 @@ export default function NotificationsInbox() {
         Transporte: {transport.toUpperCase()}
       </Typography>
 
-      {/* Selector de filtros: Todas, No leídas, Leídas */}
+      {/* Filtros: Todas / No leídas / Leídas */}
       <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 1.5 }}>
         <Tabs
           value={readFilter}
@@ -78,6 +98,7 @@ export default function NotificationsInbox() {
         loading={loading}
         error={error}
         emptyHint={emptyHint}
+        onOpen={handleOpen}
       />
     </Container>
   );
