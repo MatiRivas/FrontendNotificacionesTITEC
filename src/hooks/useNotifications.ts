@@ -9,49 +9,70 @@ type Options = {
   onNew?: (n: Notification) => void;
 };
 
+/**
+ * Hook de notificaciones
+ * - Mantiene SIEMPRE en memoria la lista completa (sin filtro)
+ * - Aplica el filtro sólo en memoria para la vista (notifications)
+ * - Expone contadores consistentes a partir de `all`
+ */
 export function useNotifications(userId: string | undefined, opts?: Options) {
-  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [allNotifications, setAllNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [transport, setTransport] = useState<'polling'>('polling');
 
-  // soporte de filtros: 'all' | 'read' | 'unread'
+  // Soporte de filtros: 'all' | 'read' | 'unread'
   const [readFilter, setReadFilter] = useState<ReadFilter>('all');
 
-  const load = useCallback(async () => {
-    if (!userId) return;
-    setLoading(true);
-    try {
-      const list = await notificationService.listNotifications(userId, {
-        includeHistory: opts?.includeHistory,
-        readFilter,
-        page: 1,
-        limit: 50,
-      });
-      setNotifications(list);
-      setError(null);
-    } catch (e: any) {
-      setError(e?.message ?? 'Error');
-    } finally {
-      setLoading(false);
-    }
-  }, [userId, opts?.includeHistory, readFilter]);
+  const load = useCallback(
+    async () => {
+      if (!userId) return;
+      setLoading(true);
+      try {
+        // IMPORTANTE: pedimos SIEMPRE la lista completa (sin readFilter en el service)
+        const list = await notificationService.listNotifications(userId, {
+          includeHistory: opts?.includeHistory,
+          page: 1,
+          limit: 50,
+          // readFilter: undefined  <-- clave: no usamos filtro del service
+        });
+        setAllNotifications(list);
+        setError(null);
+      } catch (e: any) {
+        setError(e?.message ?? 'Error');
+      } finally {
+        setLoading(false);
+      }
+    },
+    [userId, opts?.includeHistory],
+  );
 
   useEffect(() => {
     if (!userId) return;
+
+    // Suscripción por polling a la lista COMPLETA (sin filtro en service)
     const unsubscribe = notificationService.subscribePolling({
       userId,
       includeHistory: opts?.includeHistory,
-      readFilter,
+      // readFilter: undefined,  <-- clave: no filtramos en el service
       onDiff: (nuevas) => {
-        nuevas.forEach((n) => opts?.onNew?.(n)); // el listener global decide si hace pop-up
-        setNotifications((prev) => [...nuevas, ...prev]);
+        // El listener global decide si hace pop-up
+        nuevas.forEach((n) => opts?.onNew?.(n));
+        // Prepend de nuevas al estado completo, dedupe por id
+        setAllNotifications((prev) => {
+          const merged = [...nuevas, ...prev];
+          const seen = new Set<string>();
+          return merged.filter((n) => (seen.has(n.id) ? false : (seen.add(n.id), true)));
+        });
       },
     });
+
     setTransport('polling');
+    // Carga inicial
     load();
+
     return () => unsubscribe();
-  }, [userId, opts?.includeHistory, opts?.onNew, load, readFilter]);
+  }, [userId, opts?.includeHistory, opts?.onNew, load]);
 
   const refresh = useCallback(() => load(), [load]);
 
@@ -60,24 +81,27 @@ export function useNotifications(userId: string | undefined, opts?: Options) {
       if (!userId) return false;
       const ok = await notificationService.markAsRead(id, userId);
       if (ok) {
-        setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, isRead: true } : n)));
+        setAllNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, isRead: true } : n)));
       }
       return ok;
     },
     [userId],
   );
 
-  // La vista puede usar 'notifications' ya filtradas por readFilter si lo prefiere:
-  const filtered = useMemo(() => {
+  // La vista usa `notifications` ya filtradas en memoria
+  const notifications = useMemo(() => {
     switch (readFilter) {
-      case 'read': return notifications.filter((n) => n.isRead);
-      case 'unread': return notifications.filter((n) => !n.isRead);
-      default: return notifications;
+      case 'read':
+        return allNotifications.filter((n) => n.isRead);
+      case 'unread':
+        return allNotifications.filter((n) => !n.isRead);
+      default:
+        return allNotifications;
     }
-  }, [notifications, readFilter]);
+  }, [allNotifications, readFilter]);
 
   return {
-    notifications: filtered,
+    notifications,   // lista filtrada según readFilter
     loading,
     error,
     refresh,
@@ -85,6 +109,6 @@ export function useNotifications(userId: string | undefined, opts?: Options) {
     markAsRead,
     readFilter,
     setReadFilter,
-    all: notifications,
+    all: allNotifications, // lista completa SIN filtrar (para contadores)
   };
 }
