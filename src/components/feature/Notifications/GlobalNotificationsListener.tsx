@@ -4,8 +4,6 @@ import { Alert, Chip, Snackbar, Stack, Button } from '@mui/material';
 import { useNotifications } from '../../../hooks/useNotifications';
 import { notificationService } from '../../../db/services/notificationService';
 import type { Notification } from '../../../types/notifications';
-
-// Hook fake mientras tanto (reemplaza por tu auth real) Centralizado user id
 import { useAuth } from '../../../hooks/useAuth.fake';
 
 const POPUPS_ENABLED = import.meta.env.VITE_ENABLE_NOTIF_POPUPS === '1';
@@ -19,49 +17,37 @@ type QueueItem = {
 
 export default function GlobalNotificationsListener() {
   const { user } = useAuth();
-  if (!user?.id || !POPUPS_ENABLED) {
-    return null;
-  }
+  if (!user?.id || !POPUPS_ENABLED) return null;
 
   const [open, setOpen] = useState(false);
   const [current, setCurrent] = useState<QueueItem | null>(null);
   const queueRef = useRef<QueueItem[]>([]);
   const seenIdsRef = useRef<Set<string>>(new Set());
 
-  const enqueue = useCallback(
-    (n: Notification) => {
-      if (seenIdsRef.current.has(n.id)) return;
-      // Requisito: mostrar pop-up si viene canal push (3) -> normalizado a channel='internal'
-      const isPush = n.meta?.wasPush === true || n.channel === 'internal';
-      if (!isPush) return;
+  const enqueue = useCallback((n: Notification) => {
+    if (seenIdsRef.current.has(n.id)) return;
+    const isPush = n.meta?.wasPush === true || n.channel === 'internal';
+    if (!isPush) return;
 
-      seenIdsRef.current.add(n.id);
-      const item: QueueItem = {
-        id: n.id,
-        title: n.title,
-        body: n.body,
-        wasPush: n.meta?.wasPush === true,
-      };
-      queueRef.current.push(item);
+    seenIdsRef.current.add(n.id);
+    const item: QueueItem = { id: n.id, title: n.title, body: n.body, wasPush: n.meta?.wasPush === true };
+    queueRef.current.push(item);
 
-      if (!open && !current) {
-        const next = queueRef.current.shift() ?? null;
-        if (next) {
-          setCurrent(next);
-          setOpen(true);
-        }
+    if (!open && !current) {
+      const next = queueRef.current.shift() ?? null;
+      if (next) {
+        setCurrent(next);
+        setOpen(true);
       }
-    },
-    [open, current],
-  );
+    }
+  }, [open, current]);
 
   const onNew = useMemo(() => (n: Notification) => enqueue(n), [enqueue]);
 
-  // Incluimos histórico para visibilidad global, pero los popups se disparan solo para "nuevas"
+  // incluimos histórico para visibilidad global; popups solo para "nuevas"
   useNotifications(user.id, { includeHistory: true, onNew });
 
   const handleClose = useCallback(() => setOpen(false), []);
-
   useEffect(() => {
     if (!open && current) {
       const timer = window.setTimeout(() => {
@@ -84,11 +70,12 @@ export default function GlobalNotificationsListener() {
 
   return (
     <>
-      {/* Botón para generar mock (sólo con VITE_MOCK_NOTIF=1) */}
+      {/* Botón mock (opcional) */}
       <div style={{ position: 'fixed', bottom: 8, right: 8, zIndex: 99999 }}>
         <Button
           variant="contained"
           size="small"
+          color="primary"
           onClick={async () => {
             await notificationService.createMockNotification(user.id);
           }}
@@ -104,10 +91,11 @@ export default function GlobalNotificationsListener() {
         autoHideDuration={4000}
         key={current?.id}
       >
+        {/* Uso 'filled' para que tome el override del theme (verde principal) */}
         <Alert onClose={handleClose} severity="info" variant="filled" sx={{ width: '100%' }}>
           <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: current?.body ? 0.5 : 0 }}>
             <strong>{current?.title}</strong>
-            {current?.wasPush && <Chip size="small" label="Vía push" color="primary" variant="outlined" />}
+            {current?.wasPush && <Chip size="small" label="Vía push" color="default" variant="outlined" sx={{ color: '#fff', borderColor: 'rgba(255,255,255,0.7)' }} />}
           </Stack>
           {current?.body ? ` — ${current.body}` : null}
         </Alert>

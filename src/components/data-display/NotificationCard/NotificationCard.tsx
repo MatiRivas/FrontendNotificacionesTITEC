@@ -12,7 +12,6 @@ type Props = { notif: Notification };
 export default function NotificationCard({ notif }: Props) {
   const subtitle = formatDateTime(notif.createdAt);
   const metaRight = <StatusChip kind={notif.kind} notif={notif} />;
-
   const ActionLink = (props: { href?: string; label?: string }) =>
     props.href ? (
       <Button size="small" variant="outlined" color="primary" href={props.href}>
@@ -20,10 +19,18 @@ export default function NotificationCard({ notif }: Props) {
       </Button>
     ) : null;
 
+  const baseProps = {
+    kind: notif.kind,
+    title: notif.title,
+    subtitle,
+    metaRight,
+    unread: !notif.isRead, // <— importante
+  } as const;
+
   switch (notif.kind) {
     case 'ORDER_CREATED': {
       return (
-        <NotifCardBase kind={notif.kind} title={notif.title} subtitle={subtitle} metaRight={metaRight}>
+        <NotifCardBase {...baseProps}>
           <Stack direction="row" spacing={1} alignItems="center">
             {notif.meta?.amount != null ? (
               <Typography variant="body2" color="text.secondary">
@@ -35,10 +42,9 @@ export default function NotificationCard({ notif }: Props) {
         </NotifCardBase>
       );
     }
-
     case 'ORDER_SHIPPED': {
       return (
-        <NotifCardBase kind={notif.kind} title={notif.title} subtitle={subtitle} metaRight={metaRight}>
+        <NotifCardBase {...baseProps}>
           <Typography variant="body2" color="text.secondary">
             Vendedor: {notif.meta?.vendorName ?? '—'}
           </Typography>
@@ -49,10 +55,9 @@ export default function NotificationCard({ notif }: Props) {
         </NotifCardBase>
       );
     }
-
     case 'ORDER_STATUS_UPDATED': {
       return (
-        <NotifCardBase kind={notif.kind} title={notif.title} subtitle={subtitle} metaRight={metaRight}>
+        <NotifCardBase {...baseProps}>
           <Typography variant="body2" color="text.secondary">
             Estado: {notif.meta?.estadoPedido ?? 'Actualizado'}
           </Typography>
@@ -60,10 +65,9 @@ export default function NotificationCard({ notif }: Props) {
         </NotifCardBase>
       );
     }
-
     case 'PAYMENT_CONFIRMED': {
       return (
-        <NotifCardBase kind={notif.kind} title={notif.title} subtitle={subtitle} metaRight={metaRight}>
+        <NotifCardBase {...baseProps}>
           <Stack direction="row" spacing={2}>
             <Typography variant="body2" color="text.secondary">
               Orden: {notif.meta?.orderId ?? '—'}
@@ -83,11 +87,10 @@ export default function NotificationCard({ notif }: Props) {
         </NotifCardBase>
       );
     }
-
     case 'PAYMENT_STATUS_CHANGED': {
       const showFallback = notif.meta?.emailSent === false;
       return (
-        <NotifCardBase kind={notif.kind} title={notif.title} subtitle={subtitle} metaRight={metaRight}>
+        <NotifCardBase {...baseProps}>
           {showFallback && (
             <InfoBanner
               title="No se pudo enviar el correo"
@@ -111,11 +114,10 @@ export default function NotificationCard({ notif }: Props) {
         </NotifCardBase>
       );
     }
-
     case 'PAYMENT_ISSUE':
     case 'PAYMENT_DISPUTE': {
       return (
-        <NotifCardBase kind={notif.kind} title={notif.title} subtitle={subtitle} metaRight={metaRight}>
+        <NotifCardBase {...baseProps}>
           <Stack spacing={1}>
             {notif.meta?.issueType && (
               <Typography variant="body2" color="text.secondary">
@@ -128,22 +130,24 @@ export default function NotificationCard({ notif }: Props) {
               </Typography>
             )}
             {notif.meta?.responseDeadline && (
-              <Typography variant="body2" color={notif.meta?.urgentAction ? 'error' : 'text.secondary'}>
+              <Typography
+                variant="body2"
+                color={notif.meta?.urgentAction ? 'error' : 'text.secondary'}
+              >
                 Plazo límite: {formatDateTime(notif.meta.responseDeadline)}
               </Typography>
             )}
             <ActionBar
               actions={[
-                notif.meta?.evidenceUrl ? { label: 'Subir evidencia', href: notif.meta.evidenceUrl } : null,
-                notif.meta?.actionUrl ? { label: 'Ver disputa', href: notif.meta.actionUrl } : null,
+                notif.meta?.evidenceUrl ? { label: 'Subir evidencia', onClick: () => (window.location.href = notif.meta!.evidenceUrl!), variant: 'outlined' } : null,
+                notif.meta?.actionUrl ? { label: 'Ver disputa', onClick: () => (window.location.href = notif.meta!.actionUrl!), variant: 'contained', color: 'primary' } : null,
               ].filter(Boolean) as any}
             />
           </Stack>
         </NotifCardBase>
       );
     }
-
     default:
-      return <NotifCardBase kind={notif.kind} title={notif.title} subtitle={subtitle} metaRight={metaRight} />;
+      return <NotifCardBase {...baseProps} />;
   }
 }

@@ -7,6 +7,9 @@ import type { ReadFilter } from '../../db/services/notificationService';
 import { useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+const GREEN_MAIN = '#386641';
+const GREEN_LIGHT = '#6A994E';
+
 export default function NotificationsInbox() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -22,10 +25,12 @@ export default function NotificationsInbox() {
     markAsRead,
   } = useNotifications(user.id, { includeHistory: true });
 
+  // Conteos consistentes (siempre sobre la lista completa)
   const total = all.length;
   const readCount = all.filter(n => n.isRead).length;
   const unreadCount = total - readCount;
 
+  // Mensaje vacío contextual
   const emptyHint =
     readFilter === 'all'
       ? 'Sin notificaciones'
@@ -33,14 +38,35 @@ export default function NotificationsInbox() {
       ? 'Aún no tienes notificaciones leídas'
       : 'No tienes no leídas';
 
+  // Cambio de pestaña (Todas / No leídas / Leídas)
   const handleChange = (_: React.SyntheticEvent, value: ReadFilter) => {
     setReadFilter(value);
   };
 
-  const labelWithCount = (label: string, count: number) => (
+  // Render de label con Chip de conteo
+  // 'highlight' aplica sólo a "No leídas" cuando unreadCount > 0
+  const labelWithCount = (label: string, count: number, highlight = false) => (
     <Stack direction="row" spacing={1} alignItems="center">
       <span>{label}</span>
-      <Chip size="small" label={count} />
+      <Chip
+        size="small"
+        label={count}
+        sx={
+          highlight && count > 0
+            ? {
+                backgroundColor: GREEN_LIGHT,
+                color: '#FFFFFF',
+                fontWeight: 600,
+                '.MuiChip-label': { px: 0.75 },
+              }
+            : {
+                // chip neutro por defecto
+                backgroundColor: 'rgba(0,0,0,0.06)',
+                color: '#1B4332',
+                '.MuiChip-label': { px: 0.75 },
+              }
+        }
+      />
     </Stack>
   );
 
@@ -86,9 +112,13 @@ export default function NotificationsInbox() {
           onChange={handleChange}
           variant="scrollable"
           allowScrollButtonsMobile
+          TabIndicatorProps={{ style: { backgroundColor: GREEN_MAIN, height: 2 } }}
         >
           <Tab value="all" label={labelWithCount('Todas', total)} />
-          <Tab value="unread" label={labelWithCount('No leídas', unreadCount)} />
+          <Tab
+            value="unread"
+            label={labelWithCount('No leídas', unreadCount, true /* highlight */)}
+          />
           <Tab value="read" label={labelWithCount('Leídas', readCount)} />
         </Tabs>
       </Box>
