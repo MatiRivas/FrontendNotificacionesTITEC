@@ -5,7 +5,8 @@ import { useNotifications } from '../../hooks/useNotifications';
 
 // ⚠️ TEMP: reemplaza por tu hook real de autenticación cuando esté listo.
 // Debe exponer al menos user.id (y ojalá user.role para filtros futuros).
-const useAuth = () => ({ user: { id: 'usuario123', role: 'buyer' as 'buyer' | 'seller' } });
+import { useAuth } from '../../hooks/useAuth.fake'; //Hook centralizado user.id
+
 
 export default function NotificationsInbox() {
   const { user } = useAuth();

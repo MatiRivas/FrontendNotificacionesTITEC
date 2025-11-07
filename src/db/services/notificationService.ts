@@ -3,16 +3,18 @@ import { api } from '../config/api';
 import {
   Notification,
   RawUserNotification,
-  RawInternalNotification,
-  UserPreferences,
   EventType,
   NotificationKind,
+  Channel,
 } from '../../types/notifications';
 
 const isMock = import.meta.env.VITE_MOCK_NOTIF === '1';
 const POLL_MS = Number(import.meta.env.VITE_POLL_INTERVAL_MS ?? 3000);
 
-// Map tipos -> kind UI
+/* ──────────────────────────────────────────────────────────────────────────────
+  Helpers de mapeo/normalización
+────────────────────────────────────────────────────────────────────────────── */
+
 function mapEventTypeToKind(e?: EventType): NotificationKind {
   switch (e) {
     case 'order_created': return 'ORDER_CREATED';
@@ -27,45 +29,50 @@ function mapEventTypeToKind(e?: EventType): NotificationKind {
   }
 }
 
-// Normalizadores
-function normalizeUserNotification(raw: RawUserNotification): Notification {
-  const mappedChannel = raw.channel === 'push' ? 'internal' : raw.channel;
-  return {
-    id: raw.id,
-    kind: mapEventTypeToKind(raw.eventType),
-    title: raw.subject,
-    body: raw.subject,
-    channel: mappedChannel,
-    status: raw.status,
-    createdAt: raw.sentAt,
-    sentAt: raw.sentAt,
-    isRead: mappedChannel === 'internal' ? false : true,
-    meta: {
-      wasPush: raw.channel === 'push',
-      originalChannel: raw.channel,
-    },
-  };
+// ¿Incluye push (3)?
+function hasPushChannel(raw: RawUserNotification): boolean {
+  return Array.isArray(raw.channel_ids) && raw.channel_ids.includes(3);
 }
 
-function normalizeInternal(raw: RawInternalNotification): Notification {
-  const id = raw.id ?? raw._id ?? crypto.randomUUID();
-  const kind = mapEventTypeToKind(raw.type);
-  const body = raw.message ?? raw.content;
+// channel_ids -> nombre de canal principal (etiqueta visible en card)
+function pickPrimaryChannelName(raw: RawUserNotification): Channel {
+  if (hasPushChannel(raw)) return 'internal'; // push = internas/pop-up
+  if (raw.channel_ids?.includes(1)) return 'email';
+  if (raw.channel_ids?.includes(2)) return 'sms';
+  return 'email';
+}
+
+function isReadFromEstado(estado?: string): boolean {
+  return String(estado ?? '').toLowerCase() === 'leido';
+}
+
+function normalize(raw: RawUserNotification): Notification {
+  const id = String(raw.id_notificacion);
+  const createdAt = raw.fecha_hora;
+  const wasPush = hasPushChannel(raw);
+  const channel = pickPrimaryChannelName(raw);
+  const kind = mapEventTypeToKind(raw.type as any);
+
+  const fallbackTitle =
+    raw.title ??
+    (raw.type ? raw.type.replace(/_/g, ' ').toUpperCase() : 'Notificación');
+
   return {
     id,
     kind,
-    title: raw.title,
-    body,
-    channel: 'internal',
-    status: raw.status,
-    createdAt: raw.createdAt,
-    sentAt: raw.sentAt,
-    isRead: raw.isRead,
+    title: fallbackTitle,
+    body: raw.message ?? undefined,
+    channel,
+    status: undefined, // mantenemos "estado" crudo en meta
+    createdAt,
+    sentAt: createdAt,
+    isRead: isReadFromEstado(raw.estado),
     meta: {
       ...(raw.metadata ?? {}),
-      priority: raw.priority,
-      wasPush: false,
-      originalChannel: raw.channel,
+      wasPush,
+      originalChannel: wasPush ? 'push' : channel,
+      channel_ids: raw.channel_ids,
+      estado: raw.estado,
     },
   };
 }
@@ -74,13 +81,20 @@ function sortDesc(a: Notification, b: Notification) {
   return a.createdAt < b.createdAt ? 1 : -1;
 }
 
-/* ===========================
-   MOCK en memoria
-   =========================== */
-const mockDynamic: RawUserNotification[] = [];
+/* ──────────────────────────────────────────────────────────────────────────────
+  MOCK en memoria
+────────────────────────────────────────────────────────────────────────────── */
 
+const mockStore: RawUserNotification[] = [];
+
+function randomOf<T>(arr: readonly T[]): T {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+function randomOrderId() {
+  return `#ORD-${Math.floor(Math.random() * 900 + 100)}`;
+}
 function randomEventType(): EventType {
-  const pool: EventType[] = [
+  const pool = [
     'order_created',
     'order_canceled',
     'order_shipped',
@@ -90,145 +104,96 @@ function randomEventType(): EventType {
     'delivery_tracking',
     'payment_issue',
     'payment_dispute',
-  ];
-  return pool[Math.floor(Math.random() * pool.length)];
+  ] as const;
+  return randomOf(pool);
 }
-function randomChannel(): 'push' | 'email' | 'internal' {
-  const channels = ['push', 'email', 'internal'] as const; // <- tuple literal
-  return channels[Math.floor(Math.random() * channels.length)];
+function randomChannels(): number[] {
+  // mezcla simple con probabilidad de traer push (3)
+  const pick = Math.random();
+  if (pick < 0.33) return [3];
+  if (pick < 0.66) return [1, 3];
+  return [1];
 }
-function subjectFor(e: EventType, order = `#ORD-${Math.floor(Math.random() * 900 + 100)}`) {
-  switch (e) {
-    case 'order_created': return `Confirmación de compra - ${order}`;
-    case 'order_canceled': return `Compra cancelada - ${order}`;
-    case 'order_shipped': return `¡Tu pedido fue enviado! - ${order}`;
-    case 'order_status_changed': return `Estado de pedido actualizado - ${order}`;
-    case 'payment_confirmed': return `Pago confirmado - ${order}`;
-    case 'payment_status': return `Estado de pago actualizado - ${order}`;
-    case 'delivery_tracking': return `Seguimiento de entrega - ${order}`;
-    case 'payment_issue': return `Problema con pago - ${order}`;
-    case 'payment_dispute': return `Disputa de pago - ${order}`;
-    default: return `Notificación - ${order}`;
+
+/* ──────────────────────────────────────────────────────────────────────────────
+  Fetchers (aceptan array directo o wrapper { notifications: [...] })
+────────────────────────────────────────────────────────────────────────────── */
+
+// ACEPTA array directo O wrapper con { notifications: [...] }
+async function getUserPage(userId: string, page = 1, limit = 20): Promise<Notification[]> {
+  if (isMock) {
+    const pageStart = (page - 1) * limit;
+    const slice = mockStore.slice().reverse().slice(pageStart, pageStart + limit);
+    return slice.map(normalize).sort(sortDesc);
   }
+  const { data } = await api.get(
+    `/notifications/user/${encodeURIComponent(userId)}?page=${page}&limit=${limit}`,
+  );
+  // si data es array, úsalo; si es wrapper, toma .notifications
+  const arr: RawUserNotification[] = Array.isArray(data) ? data : (data?.notifications ?? []);
+  return arr.map(normalize).sort(sortDesc);
 }
 
-/* ===========================
-   API pública
-   =========================== */
+async function getUserHistory(userId: string, page = 1, limit = 50): Promise<Notification[]> {
+  if (isMock) {
+    const slice = mockStore.slice().reverse().slice(0, limit);
+    return slice.map(normalize).sort(sortDesc);
+  }
+  const { data } = await api.get(
+    `/notifications/user-history/${encodeURIComponent(userId)}?page=${page}&limit=${limit}`,
+  );
+  const arr: RawUserNotification[] = Array.isArray(data) ? data : (data?.notifications ?? []);
+  return arr.map(normalize).sort(sortDesc);
+}
+
+/* ──────────────────────────────────────────────────────────────────────────────
+  API pública del servicio
+────────────────────────────────────────────────────────────────────────────── */
+
+export type ReadFilter = 'all' | 'read' | 'unread';
+
 export const notificationService = {
-  async getUserHistory(userId: string): Promise<Notification[]> {
-    if (isMock) {
-      const base: RawUserNotification[] = [
-        {
-          id: 'h1',
-          eventType: 'order_created',
-          subject: 'Confirmación de compra - #ORD-123',
-          channel: 'push',
-          status: 'sent',
-          sentAt: new Date(Date.now() - 60_000 * 5).toISOString(),
-        },
-        {
-          id: 'h2',
-          eventType: 'order_shipped',
-          subject: '¡Tu pedido fue enviado! - #ORD-123',
-          channel: 'push',
-          status: 'sent',
-          sentAt: new Date(Date.now() - 60_000 * 3).toISOString(),
-        },
-      ];
-      return [...base, ...mockDynamic].map(normalizeUserNotification).sort(sortDesc);
-    }
-    // PENDIENTE: este endpoint no está en Endpoints.txt → desactivado
-    // Mantener para futuro; por ahora retornamos []
-    console.warn('[notificationService] getUserHistory: endpoint no documentado; usando []');
-    return [];
-  },
+  async listNotifications(
+    userId: string,
+    opts?: { includeHistory?: boolean; page?: number; limit?: number; readFilter?: ReadFilter },
+  ): Promise<Notification[]> {
+    const page = opts?.page ?? 1;
+    const limit = opts?.limit ?? 20;
 
-  async getUserInternal(userId: string, opts?: { limit?: number; offset?: number; unreadOnly?: boolean }): Promise<Notification[]> {
-    const q = new URLSearchParams();
-    if (opts?.limit != null) q.set('limit', String(opts.limit));
-    if (opts?.offset != null) q.set('offset', String(opts.offset));
-    if (opts?.unreadOnly != null) q.set('unreadOnly', String(!!opts.unreadOnly));
+    const [pageList, history] = await Promise.all([
+      getUserPage(userId, page, limit),
+      opts?.includeHistory ? getUserHistory(userId, 1, 50) : Promise.resolve<Notification[]>([]),
+    ]);
 
-    if (isMock) {
-      // Mock vacío por ahora; puedes inyectar con createMockNotification (histórico se mezcla)
-      return [];
+    // Merge + sort
+    let merged = [...pageList, ...history].sort(sortDesc);
+
+    // DEDUPE por id (útil si el histórico trae items idénticos a la página actual)
+    const seen = new Set<string>();
+    merged = merged.filter((n) => (seen.has(n.id) ? false : (seen.add(n.id), true)));
+
+    // Filtro de lectura en frontend
+    switch (opts?.readFilter) {
+      case 'read':
+        merged = merged.filter((n) => n.isRead);
+        break;
+      case 'unread':
+        merged = merged.filter((n) => !n.isRead);
+        break;
+      default:
+        break;
     }
 
-    const { data } = await api.get<RawInternalNotification[]>(
-      `/notifications/user/${encodeURIComponent(userId)}/internal${q.toString() ? `?${q.toString()}` : ''}`,
-    );
-    return data.map(normalizeInternal).sort(sortDesc);
+    return merged;
   },
 
-  async getUserPreferences(userId: string): Promise<UserPreferences> {
-    if (isMock) {
-      return {
-        userId,
-        preferredChannels: ['internal', 'email'],
-        enableNotifications: true,
-        channelSettings: {},
-        notificationTypes: ['order', 'payment', 'shipping'],
-        lastUpdated: new Date().toISOString(),
-      };
-    }
-    // PENDIENTE: no documentado
-    console.warn('[notificationService] getUserPreferences: endpoint no documentado; mock only');
-    return {
-      userId,
-      preferredChannels: ['internal', 'email'],
-      enableNotifications: true,
-      channelSettings: {},
-      notificationTypes: ['order', 'payment', 'shipping'],
-      lastUpdated: new Date().toISOString(),
-    };
-  },
-
-  async updateUserPreferences(userId: string, body: Partial<UserPreferences>): Promise<UserPreferences> {
-    if (isMock) {
-      return {
-        userId,
-        preferredChannels: (body.preferredChannels ?? ['internal', 'email']) as any,
-        enableNotifications: body.enableNotifications ?? true,
-        channelSettings: body.channelSettings ?? {},
-        notificationTypes: (body.notificationTypes ?? ['order', 'payment', 'shipping']) as any,
-        lastUpdated: new Date().toISOString(),
-      };
-    }
-    // PENDIENTE: no documentado
-    console.warn('[notificationService] updateUserPreferences: endpoint no documentado; mock only');
-    return this.getUserPreferences(userId);
-  },
-
-  async markAsRead(id: string, userId: string, readAt?: string): Promise<boolean> {
-    if (isMock) return true;
-    const { data } = await api.patch<{ success: boolean }>(
-      `/notifications/${encodeURIComponent(id)}/read`,
-      { userId, ...(readAt ? { readAt } : {}) },
-    );
-    return !!data?.success;
-  },
-
-  async createMockNotification(userId: string, seed?: Partial<RawUserNotification>) {
-    if (!isMock) {
-      console.warn('[notificationService] createMockNotification ignorado (no es mock).');
-      return;
-    }
-    const eventType = seed?.eventType ?? randomEventType();
-    const channel = seed?.channel ?? randomChannel();
-    const id = seed?.id ?? `mock-${Date.now()}`;
-    const subject = seed?.subject ?? subjectFor(eventType);
-    const raw: RawUserNotification = { id, eventType, subject, channel, status: 'sent', sentAt: new Date().toISOString() };
-    mockDynamic.push(raw);
-  },
-
-  // Polling unificado
+  // Polling con diff por ID (para “nuevas” y pop-ups)
   subscribePolling(params: {
     userId: string;
     onDiff: (nuevas: Notification[]) => void;
     includeHistory?: boolean;
     intervalMs?: number;
-    unreadOnly?: boolean;
+    readFilter?: ReadFilter; // afecta la lista base; popups se disparan por ID nuevo
   }) {
     const interval = params.intervalMs ?? POLL_MS;
     let stopped = false;
@@ -237,11 +202,12 @@ export const notificationService = {
 
     const tick = async () => {
       try {
-        const [internals, history] = await Promise.all([
-          this.getUserInternal(params.userId, { unreadOnly: params.unreadOnly, limit: 50, offset: 0 }),
-          params.includeHistory ? this.getUserHistory(params.userId) : Promise.resolve<Notification[]>([]),
-        ]);
-        const list = [...internals, ...history].sort(sortDesc);
+        const list = await this.listNotifications(params.userId, {
+          includeHistory: params.includeHistory,
+          readFilter: params.readFilter,
+          page: 1,
+          limit: 50,
+        });
         const nuevas = list.filter((n) => !known.has(n.id));
         if (nuevas.length) {
           nuevas.forEach((n) => known.add(n.id));
@@ -253,18 +219,78 @@ export const notificationService = {
     };
 
     (async () => {
-      const [internalsSeed, historySeed] = await Promise.all([
-        this.getUserInternal(params.userId, { unreadOnly: params.unreadOnly, limit: 50, offset: 0 }),
-        params.includeHistory ? this.getUserHistory(params.userId) : Promise.resolve<Notification[]>([]),
-      ]);
-      known = new Set([...internalsSeed, ...historySeed].map((n) => n.id));
+      const seed = await this.listNotifications(params.userId, {
+        includeHistory: params.includeHistory,
+        readFilter: params.readFilter,
+        page: 1,
+        limit: 50,
+      });
+      known = new Set(seed.map((n) => n.id));
       if (!stopped) timer = window.setTimeout(tick, interval);
     })();
 
     return () => {
       stopped = true;
-      if (timer) { window.clearTimeout(timer); timer = null; }
+      if (timer) {
+        window.clearTimeout(timer);
+        timer = null;
+      }
     };
   },
-};
-``
+
+  async markAsRead(id: string, userId: string, readAt?: string): Promise<boolean> {
+    if (isMock) {
+      // Simular lectura en mock
+      const raw = mockStore.find((r) => String(r.id_notificacion) === id);
+      if (raw) raw.estado = 'leido';
+      return true;
+    }
+    // Ajusta la ruta/cuerpo si tu backend define otra especificación para "read"
+    const { data } = await api.patch<{ success: boolean }>(
+      `/notifications/${encodeURIComponent(id)}/read`,
+      { userId, ...(readAt ? { readAt } : {}) },
+    );
+    return !!data?.success;
+  },
+
+  async createMockNotification(
+    userId: string,
+    seed?: Partial<RawUserNotification>,
+  ) {
+    if (!isMock) {
+      console.warn('[notificationService] createMockNotification ignorado (no es mock).');
+      return;
+    }
+    const now = new Date().toISOString();
+    const id = seed?.id_notificacion ?? `mock-${Date.now()}`;
+    const channel_ids = seed?.channel_ids ?? randomChannels();
+    const type = seed?.type ?? randomEventType();
+    const order = randomOrderId();
+    const title =
+      seed?.title ??
+      (type === 'order_created'
+        ? `Confirmación de compra - ${order}`
+        : type === 'order_shipped'
+        ? `¡Tu pedido fue enviado! - ${order}`
+        : (type ?? 'Notificación'));
+
+    const raw: RawUserNotification = {
+      id_notificacion: id,
+      fecha_hora: now,
+      id_emisor: 'service',
+      id_receptor: userId,
+      id_plantilla: 1,
+      channel_ids,
+      estado: 'enviado',
+      title,
+      message: seed?.message ?? undefined,
+      type,
+      metadata: seed?.metadata ?? {
+        orderId: order,
+        amount: Math.floor(Math.random() * 90000) + 10000,
+        currency: 'CLP',
+      },
+    };
+    mockStore.push(raw);
+  },
+}

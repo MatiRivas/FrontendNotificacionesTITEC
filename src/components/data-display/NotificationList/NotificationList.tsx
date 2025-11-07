@@ -9,9 +9,11 @@ type Props = {
   notifications: Notification[];
   loading?: boolean;
   error?: string | null;
+  onOpen?: (id: string, target?: string) => void;
+  emptyHint?: string;
 };
 
-export default function NotificationList({ notifications, loading, error }: Props) {
+export default function NotificationList({ notifications, loading, error, onOpen, emptyHint }: Props) {
   if (loading) {
     return (
       <Box sx={{ p: 2 }}>
@@ -22,18 +24,16 @@ export default function NotificationList({ notifications, loading, error }: Prop
       </Box>
     );
   }
-  if (error) {
-    return <EmptyState title="Error" description={error} />;
-  }
-  if (!notifications.length) {
-    return <EmptyState />;
-  }
+  if (error) return <EmptyState title="Error" description={error} />;
+  if (!notifications.length) return <EmptyState description={emptyHint ?? 'Sin notificaciones'} />;
+
   return (
     <Stack spacing={1.5} sx={{ p: 2 }}>
       {notifications.map((n) => (
-        <NotificationCard key={n.id} notif={n} />
+        <div key={n.id} onClick={() => onOpen?.(n.id, n.meta?.actionUrl as string | undefined)} style={{ cursor: 'pointer' }}>
+          <NotificationCard notif={n} />
+        </div>
       ))}
     </Stack>
   );
 }
-``

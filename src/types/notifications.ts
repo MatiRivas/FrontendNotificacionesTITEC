@@ -1,20 +1,21 @@
 // src/types/notifications.ts
 
-/** Actor (opcional por si lo necesitas en otras partes) */
 export type Actor = 'buyer' | 'seller';
 
-/** Tipos de evento que llegan desde el backend (histórico) contrato con backend*/
+// Backend "type" (opcional) para enriquecer títulos/mensajes
 export type EventType =
   | 'order_created'
+  | 'order_canceled'
   | 'order_shipped'
-  | 'order_status_updated'
+  | 'order_status_changed'
   | 'payment_confirmed'
-  | 'payment_status_changed'
-  | 'payment_issue'
-  | string; // abre para eventos nuevos
+  | 'payment_status'      // aceptado / rechazado
+  | 'payment_issue'       // rechazado / reembolso / disputa
+  | 'payment_dispute'
+  | 'delivery_tracking'
+  | string;
 
-
-// === Canon frontend (UPPER_SNAKE_CASE) para UI/helpers ===
+// Canon UI
 export type NotificationKind =
   | 'ORDER_CREATED'
   | 'ORDER_CANCELED'
@@ -23,99 +24,76 @@ export type NotificationKind =
   | 'PAYMENT_CONFIRMED'
   | 'PAYMENT_STATUS_CHANGED'
   | 'PAYMENT_ISSUE'
+  | 'PAYMENT_DISPUTE'
   | 'GENERIC';
 
-
-/** Canales posibles; abrimos a string por compatibilidad hacia adelante */
-export type Channel = 'internal' | 'email' | 'push' | string;
-
-/** Estado de entrega del canal */
+export type Channel = 'internal' | 'email' | 'sms' | 'push' | string;
 export type DeliveryStatus = 'sent' | 'failed' | 'queued' | string;
 
-/** Metadatos extendidos que usamos en el front */
-export interface NotificationMeta {
-  /** Marcamos si originalmente venía por push, pero lo normalizamos a internal */
-  amount?: number;
-  estadoEntrega?: string;
-  wasPush?: boolean;
-  /** Guardamos el canal original por trazabilidad (email/push/internal/...) */
-  originalChannel?: string;
+// Estados que entrega el backend actual
+export type EstadoEntrega = 'pendiente' | 'enviado' | 'recibido' | 'leido' | 'fallido';
 
-  /** Campos varios que vienen del backend en notificaciones internas */
-  isInternalFallback?: boolean;
-  originalChannelFailureReason?: string;
-  rejectionReason?: string;
+/**
+ * Notificación "cruda" devuelta por:
+ *  - GET /api/notifications/user/:userId
+ *  - GET /api/notifications/user-history/:userId
+ */
+export interface RawUserNotification {
+  id_notificacion: number | string;
+  fecha_hora: string; // ISO
+  id_emisor?: number | string;
+  id_receptor?: number | string;
+  id_plantilla?: number;
+  channel_ids?: number[]; // [1=email, 2=sms, 3=push]
+  channels_used?: string[]; // user-history puede traerlo
+  estado: EstadoEntrega; // 'leido' => isRead=true
+  // enriquecimiento opcional desde backend:
+  title?: string;
+  message?: string;
+  type?: EventType;
+  metadata?: Record<string, unknown>;
+}
+
+// ---- Tipos UI ----
+export interface NotificationMeta {
+  // negocio
   orderId?: string;
-  paymentId?: string;
+  buyerName?: string;
+  vendorName?: string;
+  amount?: number;
+  currency?: string;
+  paymentMethod?: string;
+  // shipping / tracking
+  shippedAt?: string;
+  estadoPedido?: string;
+  // pago / issues
+  rejectionReason?: string;
+  issueType?: 'rechazado' | 'reembolso' | 'disputa';
   disputeId?: string;
   evidenceUrl?: string;
   responseDeadline?: string;
-  retryUrl?: string;
-
-  /** Abre la puerta a otros metadatos que aún no tipamos */
+  urgentAction?: boolean;
+  // canal / fallback / navegación
+  wasPush?: boolean;
+  originalChannel?: string;
+  isInternalFallback?: boolean;
+  actionUrl?: string;
+  emailSent?: boolean;
+  // RAW para trazabilidad
+  channel_ids?: number[];
+  estado?: string;
   [key: string]: unknown;
 }
 
-/** Tipo normalizado que usa toda la UI */
 export interface Notification {
   id: string;
-
-  // Equivalencias entre fuentes: eventType → kind
   kind: NotificationKind;
-
-  // Texto principal/secundario
-  title: string; // subject | title
-  body?: string;  // content | subject
-
-  // Canal y estado
+  title: string;
+  body?: string;
   channel?: Channel;
   status?: DeliveryStatus;
-
-  // Tiempos
-  createdAt: string; // preferente
-  sentAt?: string;
-
-  // Lectura (aplica a internal)
-  isRead?: boolean;
-
-  // Metadatos
-  meta?: NotificationMeta;
-}
-
-/** ================== Tipos CRUDOS del backend ================== */
-/** Histórico por usuario: GET /notifications/user/:userId */
-
-// === Tipos "raw" desde endpoints del backend ===
-export interface RawUserNotification {
-  id: string;
-  eventType: EventType;
-  subject: string;
-  channel: Channel;         // puede ser 'push'
-  status: DeliveryStatus;
-  sentAt: string;           // ISO
-}
-
-
-/** Internas no leídas: GET /notifications/user/:userId/internal */
-
-export interface RawInternalNotification {
-  _id: string;
-  title: string;
-  content?: string;
-  status: DeliveryStatus;
   createdAt: string;
   sentAt?: string;
-  isRead: boolean;
-  metadata?: Record<string, unknown>; // si ya tienes un shape, úsalo
-}
-
-
-/** Preferencias de usuario */
-export interface UserPreferences {
-  userId: string;
-  preferredChannels: Channel[];     // ["email","push","internal"]...
-  enableNotifications: boolean;
-  channelSettings: Record<string, unknown>;
-  notificationTypes: string[];      // ["order","payment","shipping"]
-  lastUpdated: string;              // ISO
+  isRead?: boolean;
+  meta?: NotificationMeta;
 }

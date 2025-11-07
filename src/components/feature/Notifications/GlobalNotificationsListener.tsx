@@ -5,8 +5,8 @@ import { useNotifications } from '../../../hooks/useNotifications';
 import { notificationService } from '../../../db/services/notificationService';
 import type { Notification } from '../../../types/notifications';
 
-// Hook fake mientras tanto
-const useAuth = () => ({ user: { id: 'usuario123', name: 'Demo' } });
+// Hook fake mientras tanto (reemplaza por tu auth real) Centralizado user id
+import { useAuth } from '../../../hooks/useAuth.fake';
 
 const POPUPS_ENABLED = import.meta.env.VITE_ENABLE_NOTIF_POPUPS === '1';
 
@@ -19,30 +19,31 @@ type QueueItem = {
 
 export default function GlobalNotificationsListener() {
   const { user } = useAuth();
-
   if (!user?.id || !POPUPS_ENABLED) {
     return null;
   }
 
   const [open, setOpen] = useState(false);
   const [current, setCurrent] = useState<QueueItem | null>(null);
-
   const queueRef = useRef<QueueItem[]>([]);
   const seenIdsRef = useRef<Set<string>>(new Set());
 
   const enqueue = useCallback(
     (n: Notification) => {
       if (seenIdsRef.current.has(n.id)) return;
-      seenIdsRef.current.add(n.id);
+      // Requisito: mostrar pop-up si viene canal push (3) -> normalizado a channel='internal'
+      const isPush = n.meta?.wasPush === true || n.channel === 'internal';
+      if (!isPush) return;
 
+      seenIdsRef.current.add(n.id);
       const item: QueueItem = {
         id: n.id,
         title: n.title,
         body: n.body,
         wasPush: n.meta?.wasPush === true,
       };
-
       queueRef.current.push(item);
+
       if (!open && !current) {
         const next = queueRef.current.shift() ?? null;
         if (next) {
@@ -51,19 +52,12 @@ export default function GlobalNotificationsListener() {
         }
       }
     },
-    [open, current]
+    [open, current],
   );
 
-  const onNew = useMemo(
-    () => (n: Notification) => {
-      // Sólo pop-ups para internas (push normalizado a internal)
-      if (n.channel === 'internal') {
-        enqueue(n);
-      }
-    },
-    [enqueue]
-  );
+  const onNew = useMemo(() => (n: Notification) => enqueue(n), [enqueue]);
 
+  // Incluimos histórico para visibilidad global, pero los popups se disparan solo para "nuevas"
   useNotifications(user.id, { includeHistory: true, onNew });
 
   const handleClose = useCallback(() => setOpen(false), []);
@@ -90,15 +84,13 @@ export default function GlobalNotificationsListener() {
 
   return (
     <>
-      {/* Botón para generar una notificación MOCK aleatoria */}
+      {/* Botón para generar mock (sólo con VITE_MOCK_NOTIF=1) */}
       <div style={{ position: 'fixed', bottom: 8, right: 8, zIndex: 99999 }}>
         <Button
           variant="contained"
           size="small"
           onClick={async () => {
             await notificationService.createMockNotification(user.id);
-            // Tip: si quieres ver el popup instantáneamente sin esperar el polling de 3s,
-            // puedes forzar un refresh del hook (si expusieras `refresh`), o bajar el POLL a 1000ms.
           }}
         >
           Generar notificación aleatoria
@@ -115,9 +107,7 @@ export default function GlobalNotificationsListener() {
         <Alert onClose={handleClose} severity="info" variant="filled" sx={{ width: '100%' }}>
           <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: current?.body ? 0.5 : 0 }}>
             <strong>{current?.title}</strong>
-            {current?.wasPush && (
-              <Chip size="small" label="Vía push" color="primary" variant="outlined" />
-            )}
+            {current?.wasPush && <Chip size="small" label="Vía push" color="primary" variant="outlined" />}
           </Stack>
           {current?.body ? ` — ${current.body}` : null}
         </Alert>
