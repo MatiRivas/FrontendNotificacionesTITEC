@@ -8,9 +8,9 @@ export interface AuthUser {
 export function useAuth() {
   // ÚNICO lugar para setear el user en desarrollo
   const user: AuthUser = {
-    id: 'buyer-test-123',
+    id: 'seller-test-456',
     name: 'Demo',
-    role: 'buyer',
+    role: 'seller',
   };
   return { user };
 }

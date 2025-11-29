@@ -3,6 +3,7 @@ import { Outlet } from 'react-router-dom';
 import useWindowDimensions from '../../scripts/useWindowDimensions';
 import HeaderGPI from './menuHeader/HeaderGPI';
 import GlobalNotificationsListener from '../../components/feature/Notifications/GlobalNotificationsListener';
+import { Footer } from '../../components/mui/Footer';
 
 function MainLayout() {
   const { width } = useWindowDimensions();
@@ -20,6 +21,9 @@ function MainLayout() {
             <div className="flex-1 px-6 py-8 overflow-y-auto w-full max-h-screen h-full">
               <Outlet />
             </div>
+            
+            {/* Footer de Pulga Shop */}
+            <Footer />
           </main>
         </div>
       </div>
