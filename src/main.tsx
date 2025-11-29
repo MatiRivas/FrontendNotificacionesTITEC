@@ -5,7 +5,9 @@ import App from "./App.tsx";
 import Spinner from "./components/spinner/Spinner.tsx";
 import { BrowserRouter } from "react-router-dom";
 import { ThemeProvider } from "@mui/material";
-import theme from "./style/theme.mui.ts";
+import { getPulgaTheme } from "pulga-shop-ui";
+
+const theme = getPulgaTheme();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
