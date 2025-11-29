@@ -78,14 +78,13 @@ export function useNotifications(userId: string | undefined, opts?: Options) {
 
   const markAsRead = useCallback(
     async (id: string) => {
-      if (!userId) return false;
-      const ok = await notificationService.markAsRead(id, userId);
+      const ok = await notificationService.markAsRead(id);
       if (ok) {
         setAllNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, isRead: true } : n)));
       }
       return ok;
     },
-    [userId],
+    [],
   );
 
   // La vista usa `notifications` ya filtradas en memoria

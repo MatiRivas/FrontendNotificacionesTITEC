@@ -47,6 +47,7 @@ function isReadFromEstado(estado?: string): boolean {
 }
 
 function normalize(raw: RawUserNotification): Notification {
+  // Usar id_notificacion (el backend acepta este ID)
   const id = String(raw.id_notificacion);
   const createdAt = raw.fecha_hora;
   const wasPush = hasPushChannel(raw);
@@ -131,6 +132,12 @@ async function getUserPage(userId: string, page = 1, limit = 20): Promise<Notifi
   );
   // si data es array, úsalo; si es wrapper, toma .notifications
   const arr: RawUserNotification[] = Array.isArray(data) ? data : (data?.notifications ?? []);
+  
+  // DEBUG: ver qué campos trae el backend
+  if (arr.length > 0) {
+    console.log('[getUserPage] Primera notificación raw:', JSON.stringify(arr[0], null, 2));
+  }
+  
   return arr.map(normalize).sort(sortDesc);
 }
 
@@ -238,19 +245,25 @@ export const notificationService = {
     };
   },
 
-  async markAsRead(id: string, userId: string, readAt?: string): Promise<boolean> {
+  async markAsRead(id: string): Promise<boolean> {
     if (isMock) {
       // Simular lectura en mock
       const raw = mockStore.find((r) => String(r.id_notificacion) === id);
       if (raw) raw.estado = 'leido';
       return true;
     }
-    // Ajusta la ruta/cuerpo si tu backend define otra especificación para "read"
-    const { data } = await api.patch<{ success: boolean }>(
-      `/notifications/${encodeURIComponent(id)}/read`,
-      { userId, ...(readAt ? { readAt } : {}) },
-    );
-    return !!data?.success;
+    try {
+      // POST sin body, ID va en la URL
+      const { data } = await api.post<{ success: boolean; message: string }>(
+        `/notifications/notificacion_leida/${encodeURIComponent(id)}`,
+        {}
+      );
+      return !!data?.success;
+    } catch (error: any) {
+      console.error('[markAsRead] Error:', error.response?.status, error.response?.data || error.message);
+      console.error('[markAsRead] URL intentada:', `/notifications/notificacion_leida/${id}`);
+      return false;
+    }
   },
 
   async createMockNotification(
