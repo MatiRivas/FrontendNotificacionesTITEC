@@ -8,6 +8,9 @@ export type EventType =
   | 'order_canceled'
   | 'order_shipped'
   | 'order_status_changed'
+  | 'order_ready_to_ship'
+  | 'message_received'
+  | 'product_edited'
   | 'payment_confirmed'
   | 'payment_status'      // aceptado / rechazado
   | 'payment_issue'       // rechazado / reembolso / disputa
@@ -21,6 +24,9 @@ export type NotificationKind =
   | 'ORDER_CANCELED'
   | 'ORDER_SHIPPED'
   | 'ORDER_STATUS_UPDATED'
+  | 'ORDER_READY_TO_SHIP'
+  | 'MESSAGE_RECEIVED'
+  | 'PRODUCT_EDITED'
   | 'PAYMENT_CONFIRMED'
   | 'PAYMENT_STATUS_CHANGED'
   | 'PAYMENT_ISSUE'
@@ -60,14 +66,38 @@ export interface NotificationMeta {
   orderId?: string;
   buyerName?: string;
   vendorName?: string;
+  sellerName?: string;
+  productName?: string;
+  productId?: string;
   amount?: number;
   currency?: string;
   paymentMethod?: string;
   // shipping / tracking
   shippedAt?: string;
   estadoPedido?: string;
+  deliveryAddress?: string;
+  buyerPhone?: string;
+  trackingNumber?: string;
+  carrier?: string;
+  estimatedDelivery?: string;
+  // product_edited
+  changedFields?: string[];
+  oldPrice?: number;
+  newPrice?: number;
+  oldStock?: number;
+  newStock?: number;
+  // message_received
+  userName?: string;
+  senderName?: string;
+  messagePreview?: string;
+  conversationId?: string;
+  // cancelaciones
+  cancellationReason?: string;
+  link_soporte?: string;
   // pago / issues
   rejectionReason?: string;
+  razon?: string;
+  paymentOutcome?: string;
   issueType?: 'rechazado' | 'reembolso' | 'disputa';
   disputeId?: string;
   evidenceUrl?: string;
