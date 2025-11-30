@@ -70,19 +70,21 @@ export default function GlobalNotificationsListener() {
 
   return (
     <>
-      {/* Botón mock (opcional) */}
-      <div style={{ position: 'fixed', bottom: 8, right: 8, zIndex: 99999 }}>
-        <Button
-          variant="contained"
-          size="small"
-          color="primary"
-          onClick={async () => {
-            await notificationService.createMockNotification(user.id);
-          }}
-        >
-          Generar notificación aleatoria
-        </Button>
-      </div>
+      {/* Botón mock (solo visible en modo mock) */}
+      {import.meta.env.VITE_MOCK_NOTIF === '1' && (
+        <div style={{ position: 'fixed', bottom: 8, right: 8, zIndex: 99999 }}>
+          <Button
+            variant="contained"
+            size="small"
+            color="primary"
+            onClick={async () => {
+              await notificationService.createMockNotification(user.id);
+            }}
+          >
+            Generar notificación aleatoria
+          </Button>
+        </div>
+      )}
 
       <Snackbar
         open={open}
@@ -93,11 +95,10 @@ export default function GlobalNotificationsListener() {
       >
         {/* Uso 'filled' para que tome el override del theme (verde principal) */}
         <Alert onClose={handleClose} severity="info" variant="filled" sx={{ width: '100%' }}>
-          <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: current?.body ? 0.5 : 0 }}>
+          <Stack spacing={0.5}>
             <strong>{current?.title}</strong>
-            {current?.wasPush && <Chip size="small" label="Vía push" color="default" variant="outlined" sx={{ color: '#fff', borderColor: 'rgba(255,255,255,0.7)' }} />}
+            {current?.body && <span>{current.body}</span>}
           </Stack>
-          {current?.body ? ` — ${current.body}` : null}
         </Alert>
       </Snackbar>
     </>

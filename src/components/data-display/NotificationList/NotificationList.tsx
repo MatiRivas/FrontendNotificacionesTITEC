@@ -30,8 +30,8 @@ export default function NotificationList({ notifications, loading, error, onOpen
   return (
     <Stack spacing={1.5} sx={{ p: 2 }}>
       {notifications.map((n) => (
-        <div key={n.id} onClick={() => onOpen?.(n.id, n.meta?.actionUrl as string | undefined)} style={{ cursor: 'pointer' }}>
-          <NotificationCard notif={n} />
+        <div key={n.id} onClick={() => onOpen?.(n.id)} style={{ cursor: 'pointer' }}>
+          <NotificationCard notif={n} onOpen={onOpen} />
         </div>
       ))}
     </Stack>

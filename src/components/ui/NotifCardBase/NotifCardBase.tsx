@@ -9,6 +9,7 @@ type Props = {
   kind: NotificationKind;
   title: string;
   subtitle?: string;     // ej: fecha/hora exacta o estado adicional
+  body?: string;         // mensaje principal de la notificación
   metaRight?: ReactNode; // ej: monto, StatusChip, etc.
   children?: ReactNode;  // contenido extra específico por HDU
   onClick?: () => void;
@@ -21,6 +22,7 @@ export default function NotifCardBase({
   kind,
   title,
   subtitle,
+  body,
   metaRight,
   children,
   onClick,
@@ -67,6 +69,12 @@ export default function NotifCardBase({
             {subtitle ? (
               <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'Roboto, sans-serif' }}>
                 {subtitle}
+              </Typography>
+            ) : null}
+
+            {body ? (
+              <Typography variant="body2" color="text.primary" sx={{ mt: 0.5 }}>
+                {body}
               </Typography>
             ) : null}
 
