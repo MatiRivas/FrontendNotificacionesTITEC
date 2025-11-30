@@ -21,6 +21,9 @@ function mapEventTypeToKind(e?: EventType): NotificationKind {
     case 'order_canceled': return 'ORDER_CANCELED';
     case 'order_shipped': return 'ORDER_SHIPPED';
     case 'order_status_changed': return 'ORDER_STATUS_UPDATED';
+    case 'order_ready_to_ship': return 'ORDER_READY_TO_SHIP';
+    case 'message_received': return 'MESSAGE_RECEIVED';
+    case 'product_edited': return 'PRODUCT_EDITED';
     case 'payment_confirmed': return 'PAYMENT_CONFIRMED';
     case 'payment_status': return 'PAYMENT_STATUS_CHANGED';
     case 'payment_issue': return 'PAYMENT_ISSUE';
